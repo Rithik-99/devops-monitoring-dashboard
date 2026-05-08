@@ -19,8 +19,9 @@ pipeline {
 
             steps {
 
-                 git credentialsId: 'github-creds',
-                url: 'https://github.com/ashwin1707-cel/devops-monitoring-dashboard.git'
+                git branch: 'main',
+                credentialsId: 'github-creds',
+                url: 'https://github.com/ashwin1707-cell/devops-monitoring-dashboard.git'
             }
         }
 
@@ -110,7 +111,7 @@ pipeline {
 
             steps {
 
-                sh 'chmod 400 devops-key.pem'
+                sh 'chmod 400 devops-key.pem.pem'
             }
         }
 
@@ -120,7 +121,7 @@ pipeline {
 
                 sh """
                 ssh -o StrictHostKeyChecking=no \
-                -i devops-key.pem ec2-user@$EC2_IP '
+                -i devops-key.pem.pem ec2-user@$EC2_IP '
 
                 sudo yum update -y
 
@@ -157,7 +158,7 @@ pipeline {
 
                 sh """
                 scp -o StrictHostKeyChecking=no \
-                -i devops-key.pem \
+                -i devops-key.pem.pem \
                 -r k8s ec2-user@$EC2_IP:/home/ec2-user/
                 """
             }
@@ -169,7 +170,7 @@ pipeline {
 
                 sh """
                 ssh -o StrictHostKeyChecking=no \
-                -i devops-key.pem ec2-user@$EC2_IP '
+                -i devops-key.pem.pem ec2-user@$EC2_IP '
 
                 sleep 60
 
