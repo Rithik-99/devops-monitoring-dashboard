@@ -11,6 +11,7 @@ pipeline {
         EC2_IP = "13.126.127.111"
 
         AWS_ACCESS_KEY_ID     = credentials('keyy')
+
         AWS_SECRET_ACCESS_KEY = credentials('seckey')
     }
 
@@ -88,11 +89,10 @@ pipeline {
 
             steps {
 
-                sshagent(credentials: ['ec2-ssh-key']) {
+                sshagent(credentials: ['ec2-user']) {
 
                     sh """
-                    ssh -o StrictHostKeyChecking=no \
-                    ${EC2_USER}@${EC2_IP} '
+                    ssh -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_IP} '
 
                     echo "SSH CONNECTION SUCCESS"
 
@@ -108,15 +108,14 @@ pipeline {
 
             steps {
 
-                sshagent(credentials: ['ec2-ssh-key']) {
+                sshagent(credentials: ['ec2-user']) {
 
                     sh """
-                    ssh -o StrictHostKeyChecking=no \
-                    ${EC2_USER}@${EC2_IP} '
+                    ssh -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_IP} '
 
                     sudo yum update -y
 
-                    sudo yum install docker -y
+                    sudo yum install docker git -y
 
                     sudo systemctl enable docker
 
@@ -124,11 +123,13 @@ pipeline {
 
                     sudo usermod -aG docker ec2-user
 
+                    sudo chmod 666 /var/run/docker.sock
+
                     curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
 
                     sudo install minikube-linux-amd64 /usr/local/bin/minikube
 
-                    curl -LO https://dl.k8s.io/release/`curl -L -s https://dl.k8s.io/release/stable.txt`/bin/linux/amd64/kubectl
+                    curl -LO https://dl.k8s.io/release/\$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl
 
                     chmod +x kubectl
 
@@ -152,12 +153,11 @@ pipeline {
 
             steps {
 
-                sshagent(credentials: ['ec2-ssh-key']) {
+                sshagent(credentials: ['ec2-user']) {
 
                     sh """
                     scp -o StrictHostKeyChecking=no \
-                    -r k8s \
-                    ${EC2_USER}@${EC2_IP}:/home/ec2-user/
+                    -r k8s ${EC2_USER}@${EC2_IP}:/home/ec2-user/
                     """
                 }
             }
@@ -167,11 +167,12 @@ pipeline {
 
             steps {
 
-                sshagent(credentials: ['ec2-ssh-key']) {
+                sshagent(credentials: ['ec2-user']) {
 
                     sh """
-                    ssh -o StrictHostKeyChecking=no \
-                    ${EC2_USER}@${EC2_IP} '
+                    ssh -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_IP} '
+
+                    export KUBECONFIG=/home/ec2-user/.kube/config
 
                     kubectl apply -f /home/ec2-user/k8s/deployment.yaml
 
@@ -196,12 +197,51 @@ pipeline {
                     -n monitoring \
                     -p "{\"spec\":{\"type\":\"NodePort\"}}"
 
+                    kubectl patch svc prometheus-server \
+                    -n monitoring \
+                    -p "{\"spec\":{\"type\":\"NodePort\"}}" || true
+
                     kubectl apply -f \
                     https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml || true
 
                     kubectl get pods -A
 
                     kubectl get svc -A
+
+                    '
+                    """
+                }
+            }
+        }
+
+        stage('Show Monitoring URLs') {
+
+            steps {
+
+                sshagent(credentials: ['ec2-user']) {
+
+                    sh """
+                    ssh -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_IP} '
+
+                    echo "=============================="
+
+                    echo "APPLICATION URL"
+
+                    minikube service python-app-service --url
+
+                    echo "=============================="
+
+                    echo "GRAFANA NODEPORT"
+
+                    kubectl get svc grafana -n monitoring
+
+                    echo "=============================="
+
+                    echo "PROMETHEUS NODEPORT"
+
+                    kubectl get svc prometheus-server -n monitoring
+
+                    echo "=============================="
 
                     '
                     """
