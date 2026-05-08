@@ -111,7 +111,7 @@ pipeline {
 
             steps {
 
-                sh 'chmod 400 devops-key.pem.pem'
+                sh 'chmod 400 devops-key'
             }
         }
 
