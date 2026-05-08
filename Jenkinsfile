@@ -92,13 +92,13 @@ pipeline {
                 sshagent(credentials: ['ec2-user']) {
 
                     sh """
-                    ssh -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_IP} '
+                    ssh -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_IP} "
 
-                    echo "SSH CONNECTION SUCCESS"
+                    echo 'SSH CONNECTION SUCCESS'
 
                     hostname
 
-                    '
+                    "
                     """
                 }
             }
@@ -111,7 +111,7 @@ pipeline {
                 sshagent(credentials: ['ec2-user']) {
 
                     sh """
-                    ssh -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_IP} '
+                    ssh -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_IP} "
 
                     sudo yum update -y
 
@@ -127,7 +127,7 @@ pipeline {
 
                     sudo install minikube-linux-amd64 /usr/local/bin/minikube
 
-                    curl -LO https://dl.k8s.io/release/\\$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl
+                    curl -LO https://dl.k8s.io/release/\\\\\$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl
 
                     chmod +x kubectl
 
@@ -137,15 +137,13 @@ pipeline {
 
                     minikube delete || true
 
-                    sudo minikube start \
-                    --driver=docker \
-                    --force
+                    sudo minikube start --driver=docker --force
 
                     sudo minikube update-context
 
                     sudo kubectl get nodes
 
-                    '
+                    "
                     """
                 }
             }
@@ -172,7 +170,7 @@ pipeline {
                 sshagent(credentials: ['ec2-user']) {
 
                     sh """
-                    ssh -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_IP} '
+                    ssh -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_IP} "
 
                     sudo kubectl apply -f /home/ec2-user/k8s/deployment.yaml
 
@@ -195,11 +193,11 @@ pipeline {
 
                     sudo kubectl patch svc grafana \
                     -n monitoring \
-                    -p "{\"spec\":{\"type\":\"NodePort\"}}"
+                    -p '{\"spec\":{\"type\":\"NodePort\"}}'
 
                     sudo kubectl patch svc prometheus-server \
                     -n monitoring \
-                    -p "{\"spec\":{\"type\":\"NodePort\"}}" || true
+                    -p '{\"spec\":{\"type\":\"NodePort\"}}' || true
 
                     sudo kubectl apply -f \
                     https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml || true
@@ -208,7 +206,7 @@ pipeline {
 
                     sudo kubectl get svc -A
 
-                    '
+                    "
                     """
                 }
             }
@@ -221,29 +219,29 @@ pipeline {
                 sshagent(credentials: ['ec2-user']) {
 
                     sh """
-                    ssh -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_IP} '
+                    ssh -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_IP} "
 
-                    echo "=============================="
+                    echo '=============================='
 
-                    echo "APPLICATION URL"
+                    echo 'APPLICATION URL'
 
                     sudo minikube service python-app-service --url
 
-                    echo "=============================="
+                    echo '=============================='
 
-                    echo "GRAFANA NODEPORT"
+                    echo 'GRAFANA NODEPORT'
 
                     sudo kubectl get svc grafana -n monitoring
 
-                    echo "=============================="
+                    echo '=============================='
 
-                    echo "PROMETHEUS NODEPORT"
+                    echo 'PROMETHEUS NODEPORT'
 
                     sudo kubectl get svc prometheus-server -n monitoring
 
-                    echo "=============================="
+                    echo '=============================='
 
-                    '
+                    "
                     """
                 }
             }
