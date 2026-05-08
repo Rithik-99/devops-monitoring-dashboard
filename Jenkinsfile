@@ -6,8 +6,6 @@ pipeline {
 
         IMAGE_NAME = "ashwin0717/devops-monitoring-dashboard:latest"
 
-        EC2_USER = "ec2-user"
-
         AWS_ACCESS_KEY_ID = credentials('keyy')
 
         AWS_SECRET_ACCESS_KEY = credentials('seckey')
@@ -111,11 +109,10 @@ pipeline {
 
             steps {
 
-                sshagent(['ec2-key']) {
+                sshagent(credentials: ['ec2-ssh-key']) {
 
                     sh """
-                    ssh -o StrictHostKeyChecking=no \
-                    ec2-user@$EC2_IP '
+                    ssh -o StrictHostKeyChecking=no ec2-user@$EC2_IP '
 
                     sudo yum update -y
 
@@ -151,7 +148,7 @@ pipeline {
 
             steps {
 
-                sshagent(['ec2-key']) {
+                sshagent(credentials: ['ec2-ssh-key']) {
 
                     sh """
                     scp -o StrictHostKeyChecking=no \
@@ -165,17 +162,16 @@ pipeline {
 
             steps {
 
-                sshagent(['ec2-key']) {
+                sshagent(credentials: ['ec2-ssh-key']) {
 
                     sh """
-                    ssh -o StrictHostKeyChecking=no \
-                    ec2-user@$EC2_IP '
+                    ssh -o StrictHostKeyChecking=no ec2-user@$EC2_IP '
 
                     sleep 60
 
-                    kubectl apply -f k8s/deployment.yaml
+                    kubectl apply -f /home/ec2-user/k8s/deployment.yaml
 
-                    kubectl apply -f k8s/service.yaml
+                    kubectl apply -f /home/ec2-user/k8s/service.yaml
 
                     kubectl create namespace monitoring || true
 
@@ -195,9 +191,6 @@ pipeline {
                     kubectl patch svc grafana \
                     -n monitoring \
                     -p "{\"spec\":{\"type\":\"NodePort\"}}"
-
-                    kubectl apply -f \
-                    https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml || true
 
                     kubectl get pods -A
 
