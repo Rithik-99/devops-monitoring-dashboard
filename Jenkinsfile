@@ -5,7 +5,10 @@ pipeline {
     environment {
 
         IMAGE_NAME = "ashwin0717/devops-monitoring-dashboard:latest"
-        EC2_USER  = "ec2-user"
+
+        EC2_USER = "ec2-user"
+
+        EC2_IP = "13.126.127.111"
 
         AWS_ACCESS_KEY_ID     = credentials('keyy')
         AWS_SECRET_ACCESS_KEY = credentials('seckey')
@@ -81,26 +84,22 @@ pipeline {
             }
         }
 
-        stage('Get EC2 Public IP') {
+        stage('Test SSH Connection') {
 
             steps {
 
-                script {
+                sshagent(credentials: ['ec2-ssh-key']) {
 
-                    env.EC2_IP = sh(
+                    sh """
+                    ssh -o StrictHostKeyChecking=no \
+                    ${EC2_USER}@${EC2_IP} '
 
-                        script: """
-                        aws ec2 describe-instances \
-                        --filters "Name=tag:Name,Values=k8s-monitoring-server" \
-                        --query "Reservations[*].Instances[*].PublicIpAddress" \
-                        --output text
-                        """,
+                    echo "SSH CONNECTION SUCCESS"
 
-                        returnStdout: true
+                    hostname
 
-                    ).trim()
-
-                    echo "EC2 Public IP: ${EC2_IP}"
+                    '
+                    """
                 }
             }
         }
@@ -112,15 +111,16 @@ pipeline {
                 sshagent(credentials: ['ec2-ssh-key']) {
 
                     sh """
-                    ssh -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_IP} '
+                    ssh -o StrictHostKeyChecking=no \
+                    ${EC2_USER}@${EC2_IP} '
 
                     sudo yum update -y
 
                     sudo yum install docker -y
 
-                    sudo systemctl start docker
-
                     sudo systemctl enable docker
+
+                    sudo systemctl start docker
 
                     sudo usermod -aG docker ec2-user
 
@@ -128,7 +128,7 @@ pipeline {
 
                     sudo install minikube-linux-amd64 /usr/local/bin/minikube
 
-                    curl -LO "https://dl.k8s.io/release/\$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+                    curl -LO https://dl.k8s.io/release/`curl -L -s https://dl.k8s.io/release/stable.txt`/bin/linux/amd64/kubectl
 
                     chmod +x kubectl
 
@@ -136,7 +136,11 @@ pipeline {
 
                     curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
+                    minikube delete || true
+
                     minikube start --driver=docker --force
+
+                    kubectl get nodes
 
                     '
                     """
@@ -152,7 +156,8 @@ pipeline {
 
                     sh """
                     scp -o StrictHostKeyChecking=no \
-                    -r k8s ${EC2_USER}@${EC2_IP}:/home/ec2-user/
+                    -r k8s \
+                    ${EC2_USER}@${EC2_IP}:/home/ec2-user/
                     """
                 }
             }
@@ -165,9 +170,8 @@ pipeline {
                 sshagent(credentials: ['ec2-ssh-key']) {
 
                     sh """
-                    ssh -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_IP} '
-
-                    export KUBECONFIG=/home/ec2-user/.kube/config
+                    ssh -o StrictHostKeyChecking=no \
+                    ${EC2_USER}@${EC2_IP} '
 
                     kubectl apply -f /home/ec2-user/k8s/deployment.yaml
 
