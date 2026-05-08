@@ -115,13 +115,11 @@ pipeline {
 
                     sudo yum update -y
 
-                    sudo yum install docker git -y
+                    sudo yum install docker git conntrack -y
 
                     sudo systemctl enable docker
 
-                    sudo systemctl start docker
-
-                    sudo usermod -aG docker ec2-user
+                    sudo systemctl restart docker
 
                     sudo chmod 666 /var/run/docker.sock
 
@@ -129,7 +127,7 @@ pipeline {
 
                     sudo install minikube-linux-amd64 /usr/local/bin/minikube
 
-                    curl -LO https://dl.k8s.io/release/\$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl
+                    curl -LO https://dl.k8s.io/release/\\$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl
 
                     chmod +x kubectl
 
@@ -139,9 +137,13 @@ pipeline {
 
                     minikube delete || true
 
-                    minikube start --driver=docker --force
+                    sudo minikube start \
+                    --driver=docker \
+                    --force
 
-                    kubectl get nodes
+                    sudo minikube update-context
+
+                    sudo kubectl get nodes
 
                     '
                     """
@@ -172,41 +174,39 @@ pipeline {
                     sh """
                     ssh -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_IP} '
 
-                    export KUBECONFIG=/home/ec2-user/.kube/config
+                    sudo kubectl apply -f /home/ec2-user/k8s/deployment.yaml
 
-                    kubectl apply -f /home/ec2-user/k8s/deployment.yaml
+                    sudo kubectl apply -f /home/ec2-user/k8s/service.yaml
 
-                    kubectl apply -f /home/ec2-user/k8s/service.yaml
+                    sudo kubectl create namespace monitoring || true
 
-                    kubectl create namespace monitoring || true
-
-                    helm repo add prometheus-community \
+                    sudo helm repo add prometheus-community \
                     https://prometheus-community.github.io/helm-charts
 
-                    helm repo update
+                    sudo helm repo update
 
-                    helm install prometheus \
+                    sudo helm install prometheus \
                     prometheus-community/prometheus \
                     -n monitoring || true
 
-                    helm install grafana \
+                    sudo helm install grafana \
                     prometheus-community/grafana \
                     -n monitoring || true
 
-                    kubectl patch svc grafana \
+                    sudo kubectl patch svc grafana \
                     -n monitoring \
                     -p "{\"spec\":{\"type\":\"NodePort\"}}"
 
-                    kubectl patch svc prometheus-server \
+                    sudo kubectl patch svc prometheus-server \
                     -n monitoring \
                     -p "{\"spec\":{\"type\":\"NodePort\"}}" || true
 
-                    kubectl apply -f \
+                    sudo kubectl apply -f \
                     https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml || true
 
-                    kubectl get pods -A
+                    sudo kubectl get pods -A
 
-                    kubectl get svc -A
+                    sudo kubectl get svc -A
 
                     '
                     """
@@ -227,19 +227,19 @@ pipeline {
 
                     echo "APPLICATION URL"
 
-                    minikube service python-app-service --url
+                    sudo minikube service python-app-service --url
 
                     echo "=============================="
 
                     echo "GRAFANA NODEPORT"
 
-                    kubectl get svc grafana -n monitoring
+                    sudo kubectl get svc grafana -n monitoring
 
                     echo "=============================="
 
                     echo "PROMETHEUS NODEPORT"
 
-                    kubectl get svc prometheus-server -n monitoring
+                    sudo kubectl get svc prometheus-server -n monitoring
 
                     echo "=============================="
 
