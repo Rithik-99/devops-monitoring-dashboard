@@ -115,100 +115,92 @@ pipeline {
             }
         }
 
-        stage('Install Docker + Kubernetes Tools') {
+       stage('Install Docker + Kubernetes Tools') {
+    steps {
+        sshagent(['ec2-key']) {
 
-            steps {
+            sh """
+            ssh -o StrictHostKeyChecking=no ec2-user@$EC2_IP '
 
-                sh """
-                ssh -o StrictHostKeyChecking=no \
-                -i devops-key.pem.pem ec2-user@$EC2_IP '
+            sudo yum update -y
+            sudo yum install docker -y
 
-                sudo yum update -y
+            sudo systemctl start docker
+            sudo systemctl enable docker
 
-                sudo yum install docker -y
+            sudo usermod -aG docker ec2-user
 
-                sudo systemctl start docker
+            curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
+            sudo install minikube-linux-amd64 /usr/local/bin/minikube
 
-                sudo systemctl enable docker
+            curl -LO "https://dl.k8s.io/release/\$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
 
-                sudo usermod -aG docker ec2-user
+            chmod +x kubectl
+            sudo mv kubectl /usr/local/bin/
 
-                curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
+            curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
-                sudo install minikube-linux-amd64 /usr/local/bin/minikube
+            minikube start --driver=docker --force
 
-                curl -LO "https://dl.k8s.io/release/\$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-
-                chmod +x kubectl
-
-                sudo mv kubectl /usr/local/bin/
-
-                curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-
-                minikube start --driver=docker --force
-
-                '
-                """
-            }
-        }
-
-        stage('Copy Kubernetes Files') {
-
-            steps {
-
-                sh """
-                scp -o StrictHostKeyChecking=no \
-                -i devops-key.pem.pem \
-                -r k8s ec2-user@$EC2_IP:/home/ec2-user/
-                """
-            }
-        }
-
-        stage('Deploy Application + Monitoring') {
-
-            steps {
-
-                sh """
-                ssh -o StrictHostKeyChecking=no \
-                -i devops-key.pem.pem ec2-user@$EC2_IP '
-
-                sleep 60
-
-                kubectl apply -f k8s/deployment.yaml
-
-                kubectl apply -f k8s/service.yaml
-
-                kubectl create namespace monitoring || true
-
-                helm repo add prometheus-community \
-                https://prometheus-community.github.io/helm-charts
-
-                helm repo update
-
-                helm install prometheus \
-                prometheus-community/prometheus \
-                -n monitoring || true
-
-                helm install grafana \
-                prometheus-community/grafana \
-                -n monitoring || true
-
-                kubectl patch svc grafana \
-                -n monitoring \
-                -p "{\"spec\": {\"type\": \"NodePort\"}}"
-
-                kubectl apply -f \
-                https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml || true
-
-                kubectl get pods -A
-
-                kubectl get svc -A
-
-                '
-                """
-            }
+            '
+            """
         }
     }
+}
+
+       stage('Copy Kubernetes Files') {
+    steps {
+
+        sshagent(['ec2-key']) {
+
+            sh """
+            scp -o StrictHostKeyChecking=no \
+            -r k8s ec2-user@$EC2_IP:/home/ec2-user/
+            """
+        }
+    }
+}
+
+     stage('Deploy Application + Monitoring') {
+    steps {
+
+        sshagent(['ec2-key']) {
+
+            sh """
+            ssh -o StrictHostKeyChecking=no ec2-user@$EC2_IP '
+
+            sleep 60
+
+            kubectl apply -f k8s/deployment.yaml
+            kubectl apply -f k8s/service.yaml
+
+            kubectl create namespace monitoring || true
+
+            helm repo add prometheus-community \
+            https://prometheus-community.github.io/helm-charts
+
+            helm repo update
+
+            helm install prometheus \
+            prometheus-community/prometheus \
+            -n monitoring || true
+
+            helm install grafana \
+            prometheus-community/grafana \
+            -n monitoring || true
+
+            kubectl patch svc grafana \
+            -n monitoring \
+            -p "{\"spec\":{\"type\":\"NodePort\"}}"
+
+            kubectl get pods -A
+            kubectl get svc -A
+
+            '
+            """
+        }
+    }
+}
 
     post {
 
