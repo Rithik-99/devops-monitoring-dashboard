@@ -8,9 +8,9 @@ pipeline {
 
         EC2_USER = "ec2-user"
 
-        AWS_ACCESS_KEY_ID = credentials('aws-access-key')
+        AWS_ACCESS_KEY_ID = credentials('keyy')
 
-        AWS_SECRET_ACCESS_KEY = credentials('aws-secret-key')
+        AWS_SECRET_ACCESS_KEY = credentials('seckey')
     }
 
     stages {
@@ -19,7 +19,8 @@ pipeline {
 
             steps {
 
-                git 'https://github.com/ashwin1707-cell/devops-monitoring-dashboard.git'
+                 git credentialsId: 'github-creds',
+                url: 'https://github.com/ashwin1707-cel/devops-monitoring-dashboard.git'
             }
         }
 
