@@ -4,7 +4,7 @@ resource "aws_instance" "k8s_server" {
 
   instance_type = "t2.large"
 
-  key_name      = "devops-key.pem.pem"
+  key_name      = "devops-key"
 
   security_groups = ["default"]
 
