@@ -5,7 +5,7 @@ pipeline {
 
     environment {
 
-        IMAGE_NAME = "ashwin0717/devops-monitoring-dashboard:latest"
+        IMAGE_NAME = "ashwin0717/devops-monitoring-dashboard:${BUILD_NUMBER}"
 
         AWS_ACCESS_KEY_ID     = credentials('aws-access-key')
         AWS_SECRET_ACCESS_KEY = credentials('aws-secret-key')
@@ -92,6 +92,14 @@ pipeline {
             }
         }
 
+        stage('Docker Cleanup') {
+
+            steps {
+
+                sh 'docker system prune -af || true'
+            }
+        }
+
         stage('Build Docker Image') {
 
             steps {
@@ -139,8 +147,6 @@ pipeline {
 
                     sudo yum update -y
 
-                    # INSTALL DOCKER
-
                     if ! command -v docker &> /dev/null
                     then
                         sudo yum install docker -y
@@ -148,8 +154,6 @@ pipeline {
                         sudo systemctl start docker
                         sudo usermod -aG docker ec2-user
                     fi
-
-                    # INSTALL KUBECTL
 
                     if ! command -v kubectl &> /dev/null
                     then
@@ -160,8 +164,6 @@ pipeline {
                         sudo mv kubectl /usr/local/bin/
                     fi
 
-                    # INSTALL MINIKUBE
-
                     if ! command -v minikube &> /dev/null
                     then
                         curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
@@ -169,19 +171,16 @@ pipeline {
                         sudo install minikube-linux-amd64 /usr/local/bin/minikube
                     fi
 
-                    # INSTALL HELM
-
                     if ! command -v helm &> /dev/null
                     then
                         curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
                     fi
 
-                    # START MINIKUBE
-
                     minikube delete || true
 
-                    minikube start \
+                    sudo minikube start \
                     --driver=docker \
+                    --force \
                     --memory=4096 \
                     --cpus=2
 
@@ -190,6 +189,18 @@ pipeline {
                     '
                     """
                 }
+            }
+        }
+
+        stage('Update Kubernetes Deployment') {
+
+            steps {
+
+                sh """
+                sed -i 's|image:.*|image: ${IMAGE_NAME}|g' k8s/deployment.yaml
+                """
+
+                sh 'cat k8s/deployment.yaml'
             }
         }
 
@@ -246,10 +257,10 @@ pipeline {
 
                     helm repo update
 
-                    helm install monitoring \
+                    helm upgrade --install monitoring \
                     prometheus-community/kube-prometheus-stack \
                     --namespace monitoring \
-                    --set alertmanager.enabled=false || true
+                    --set alertmanager.enabled=false
 
                     kubectl patch svc monitoring-grafana \
                     -n monitoring \
@@ -311,4 +322,3 @@ pipeline {
     }
 }
 ```
-
