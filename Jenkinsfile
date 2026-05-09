@@ -14,7 +14,7 @@ pipeline {
 
     stages {
 
-        stage('Clone GitHub Repository') {
+        stage('Clone Repository') {
 
             steps {
 
@@ -25,43 +25,27 @@ pipeline {
                     credentialsId: 'github-creds',
                     url: 'https://github.com/ashwin1707-cell/devops-monitoring-dashboard.git'
                 )
+
+                sh 'ls -la'
             }
         }
 
-        stage('Terraform Init') {
+        stage('Terraform Deploy') {
 
             steps {
 
                 dir("${TF_DIR}") {
 
-                    sh 'terraform init'
+                    sh '''
+                    terraform init
+                    terraform validate
+                    terraform apply -auto-approve
+                    '''
                 }
             }
         }
 
-        stage('Terraform Validate') {
-
-            steps {
-
-                dir("${TF_DIR}") {
-
-                    sh 'terraform validate'
-                }
-            }
-        }
-
-        stage('Terraform Apply') {
-
-            steps {
-
-                dir("${TF_DIR}") {
-
-                    sh 'terraform apply -auto-approve'
-                }
-            }
-        }
-
-        stage('Get EC2 Public IP') {
+        stage('Get EC2 IP') {
 
             steps {
 
@@ -81,21 +65,17 @@ pipeline {
 
             steps {
 
-                sh 'sleep 90'
+                sh 'sleep 60'
             }
         }
 
-        stage('Build Docker Image') {
+        stage('Build And Push Docker Image') {
 
             steps {
+
+                sh 'docker system prune -af || true'
 
                 sh 'docker build -t $IMAGE_NAME .'
-            }
-        }
-
-        stage('Docker Login') {
-
-            steps {
 
                 withCredentials([
                     usernamePassword(
@@ -108,38 +88,37 @@ pipeline {
                     sh '''
                     echo "$DOCKER_PASS" | docker login \
                     -u "$DOCKER_USER" --password-stdin
+
+                    docker push $IMAGE_NAME
                     '''
                 }
             }
         }
 
-        stage('Push Docker Image') {
+        stage('Setup Kubernetes And Deploy') {
 
             steps {
 
-                sh 'docker push $IMAGE_NAME'
-            }
-        }
-
-        stage('Install Kubernetes Tools') {
-
-            steps {
+                sh """
+                sed -i 's|image:.*|image: ${IMAGE_NAME}|g' k8s/deployment.yaml
+                """
 
                 sshagent(credentials: ['ec2-key']) {
 
                     sh """
+                    scp -o StrictHostKeyChecking=no \
+                    -r k8s ec2-user@${EC2_IP}:/home/ec2-user/
+
                     ssh -o StrictHostKeyChecking=no ec2-user@${EC2_IP} '
 
                     sudo yum update -y
 
-                    sudo yum install -y docker git conntrack
+                    sudo yum install docker git conntrack -y
 
                     sudo systemctl enable docker
                     sudo systemctl start docker
 
-                    sudo usermod -aG docker ec2-user
-
-                    curl -LO "https://dl.k8s.io/release/\$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+                    curl -LO "https://dl.k8s.io/release/v1.35.1/bin/linux/amd64/kubectl"
 
                     chmod +x kubectl
 
@@ -153,68 +132,27 @@ pipeline {
 
                     curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
-                    sudo minikube delete || true
+                    docker system prune -af || true
 
-                    sudo rm -rf /root/.kube /root/.minikube
+                    minikube delete || true
 
-                    sudo minikube start \
+                    minikube start \
                     --driver=docker \
                     --force \
-                    --memory=2200mb \
+                    --memory=2200 \
                     --cpus=2
 
-                    sudo mkdir -p /home/ec2-user/.kube
+                    mkdir -p \$HOME/.kube
 
-                    sudo cp -r /root/.kube/config /home/ec2-user/.kube/config
+                    sudo cp -f /root/.kube/config \$HOME/.kube/config || true
 
-                    sudo chown -R ec2-user:ec2-user /home/ec2-user/.kube
+                    sudo chown -R ec2-user:ec2-user \$HOME/.kube
 
-                    export KUBECONFIG=/home/ec2-user/.kube/config
+                    export KUBECONFIG=\$HOME/.kube/config
 
-                    kubectl config current-context
+                    kubectl config use-context minikube
 
                     kubectl get nodes
-
-                    '
-                    """
-                }
-            }
-        }
-
-        stage('Update Kubernetes Deployment') {
-
-            steps {
-
-                sh """
-                sed -i 's|image:.*|image: ${IMAGE_NAME}|g' k8s/deployment.yaml
-                """
-            }
-        }
-
-        stage('Copy Kubernetes Files') {
-
-            steps {
-
-                sshagent(credentials: ['ec2-key']) {
-
-                    sh """
-                    scp -o StrictHostKeyChecking=no \
-                    -r k8s ec2-user@${EC2_IP}:/home/ec2-user/
-                    """
-                }
-            }
-        }
-
-        stage('Deploy Application') {
-
-            steps {
-
-                sshagent(credentials: ['ec2-key']) {
-
-                    sh """
-                    ssh -o StrictHostKeyChecking=no ec2-user@${EC2_IP} '
-
-                    export KUBECONFIG=/home/ec2-user/.kube/config
 
                     kubectl apply -f /home/ec2-user/k8s/
 
@@ -223,23 +161,6 @@ pipeline {
                     kubectl get pods
 
                     kubectl get svc
-
-                    '
-                    """
-                }
-            }
-        }
-
-        stage('Install Monitoring Stack') {
-
-            steps {
-
-                sshagent(credentials: ['ec2-key']) {
-
-                    sh """
-                    ssh -o StrictHostKeyChecking=no ec2-user@${EC2_IP} '
-
-                    export KUBECONFIG=/home/ec2-user/.kube/config
 
                     kubectl create namespace monitoring || true
 
@@ -253,40 +174,18 @@ pipeline {
                     --namespace monitoring \
                     --set alertmanager.enabled=false
 
-                    kubectl patch svc monitoring-grafana \
-                    -n monitoring \
-                    -p "{\"spec\":{\"type\":\"NodePort\"}}"
-
                     kubectl get svc -n monitoring
 
-                    '
-                    """
-                }
-            }
-        }
-
-        stage('Show URLs') {
-
-            steps {
-
-                sshagent(credentials: ['ec2-key']) {
-
-                    sh """
-                    ssh -o StrictHostKeyChecking=no ec2-user@${EC2_IP} '
-
-                    export KUBECONFIG=/home/ec2-user/.kube/config
-
-                    echo "=========================="
+                    echo "=============================="
 
                     echo "APPLICATION URL"
 
                     minikube service python-app-service --url
 
-                    echo "=========================="
-
-                    kubectl get svc -n monitoring
+                    echo "=============================="
 
                     '
+
                     """
                 }
             }
@@ -297,7 +196,7 @@ pipeline {
 
         success {
 
-            echo 'PIPELINE EXECUTED SUCCESSFULLY'
+            echo 'PIPELINE SUCCESSFULLY COMPLETED'
         }
 
         failure {
