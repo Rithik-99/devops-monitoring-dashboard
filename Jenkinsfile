@@ -25,10 +25,6 @@ pipeline {
                     credentialsId: 'github-creds',
                     url: 'https://github.com/ashwin1707-cell/devops-monitoring-dashboard.git'
                 )
-
-                sh 'echo "Repository Cloned Successfully"'
-
-                sh 'ls -la'
             }
         }
 
@@ -76,7 +72,7 @@ pipeline {
                         returnStdout: true
                     ).trim()
 
-                    echo "EC2 PUBLIC IP: ${env.EC2_IP}"
+                    echo "EC2 IP: ${env.EC2_IP}"
                 }
             }
         }
@@ -85,17 +81,7 @@ pipeline {
 
             steps {
 
-                echo "Waiting for EC2 instance..."
-
                 sh 'sleep 90'
-            }
-        }
-
-        stage('Docker Cleanup') {
-
-            steps {
-
-                sh 'docker system prune -af || true'
             }
         }
 
@@ -135,7 +121,7 @@ pipeline {
             }
         }
 
-        stage('Install Docker + Kubernetes + Helm') {
+        stage('Install Kubernetes Tools') {
 
             steps {
 
@@ -146,42 +132,46 @@ pipeline {
 
                     sudo yum update -y
 
-                    if ! command -v docker &> /dev/null
-                    then
-                        sudo yum install docker -y
-                        sudo systemctl enable docker
-                        sudo systemctl start docker
-                        sudo usermod -aG docker ec2-user
-                    fi
+                    sudo yum install -y docker git conntrack
 
-                    if ! command -v kubectl &> /dev/null
-                    then
-                        curl -LO "https://dl.k8s.io/release/\$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+                    sudo systemctl enable docker
+                    sudo systemctl start docker
 
-                        chmod +x kubectl
+                    sudo usermod -aG docker ec2-user
 
-                        sudo mv kubectl /usr/local/bin/
-                    fi
+                    curl -LO "https://dl.k8s.io/release/\$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
 
-                    if ! command -v minikube &> /dev/null
-                    then
-                        curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
+                    chmod +x kubectl
 
-                        sudo install minikube-linux-amd64 /usr/local/bin/minikube
-                    fi
+                    sudo mv kubectl /usr/local/bin/
 
-                    if ! command -v helm &> /dev/null
-                    then
-                        curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-                    fi
+                    curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
 
-                    minikube delete || true
+                    chmod +x minikube-linux-amd64
+
+                    sudo mv minikube-linux-amd64 /usr/local/bin/minikube
+
+                    curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+                    sudo minikube delete || true
+
+                    sudo rm -rf /root/.kube /root/.minikube
 
                     sudo minikube start \
                     --driver=docker \
                     --force \
-                    --memory=4096 \
+                    --memory=2200mb \
                     --cpus=2
+
+                    sudo mkdir -p /home/ec2-user/.kube
+
+                    sudo cp -r /root/.kube/config /home/ec2-user/.kube/config
+
+                    sudo chown -R ec2-user:ec2-user /home/ec2-user/.kube
+
+                    export KUBECONFIG=/home/ec2-user/.kube/config
+
+                    kubectl config current-context
 
                     kubectl get nodes
 
@@ -198,8 +188,6 @@ pipeline {
                 sh """
                 sed -i 's|image:.*|image: ${IMAGE_NAME}|g' k8s/deployment.yaml
                 """
-
-                sh 'cat k8s/deployment.yaml'
             }
         }
 
@@ -226,6 +214,8 @@ pipeline {
                     sh """
                     ssh -o StrictHostKeyChecking=no ec2-user@${EC2_IP} '
 
+                    export KUBECONFIG=/home/ec2-user/.kube/config
+
                     kubectl apply -f /home/ec2-user/k8s/
 
                     kubectl rollout status deployment/python-app
@@ -249,6 +239,8 @@ pipeline {
                     sh """
                     ssh -o StrictHostKeyChecking=no ec2-user@${EC2_IP} '
 
+                    export KUBECONFIG=/home/ec2-user/.kube/config
+
                     kubectl create namespace monitoring || true
 
                     helm repo add prometheus-community \
@@ -262,10 +254,6 @@ pipeline {
                     --set alertmanager.enabled=false
 
                     kubectl patch svc monitoring-grafana \
-                    -n monitoring \
-                    -p "{\"spec\":{\"type\":\"NodePort\"}}"
-
-                    kubectl patch svc monitoring-kube-prometheus-prometheus \
                     -n monitoring \
                     -p "{\"spec\":{\"type\":\"NodePort\"}}"
 
@@ -286,19 +274,17 @@ pipeline {
                     sh """
                     ssh -o StrictHostKeyChecking=no ec2-user@${EC2_IP} '
 
-                    echo "======================================"
+                    export KUBECONFIG=/home/ec2-user/.kube/config
+
+                    echo "=========================="
 
                     echo "APPLICATION URL"
 
                     minikube service python-app-service --url
 
-                    echo "======================================"
-
-                    echo "MONITORING SERVICES"
+                    echo "=========================="
 
                     kubectl get svc -n monitoring
-
-                    echo "======================================"
 
                     '
                     """
