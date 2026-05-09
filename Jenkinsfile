@@ -1,3 +1,4 @@
+```groovy
 pipeline {
 
     agent any
@@ -6,24 +7,29 @@ pipeline {
 
         IMAGE_NAME = "ashwin0717/devops-monitoring-dashboard:latest"
 
-        EC2_USER = "ec2-user"
+        AWS_ACCESS_KEY_ID     = credentials('aws-access-key')
+        AWS_SECRET_ACCESS_KEY = credentials('aws-secret-key')
 
-        EC2_IP = "13.126.127.111"
-
-        AWS_ACCESS_KEY_ID     = credentials('keyy')
-
-        AWS_SECRET_ACCESS_KEY = credentials('seckey')
+        TF_DIR = "terraform"
     }
 
     stages {
 
-        stage('Git Clone') {
+        stage('Clone GitHub Repository') {
 
             steps {
 
-                git branch: 'main',
-                credentialsId: 'github-creds',
-                url: 'https://github.com/ashwin1707-cell/devops-monitoring-dashboard.git'
+                cleanWs()
+
+                git(
+                    branch: 'main',
+                    credentialsId: 'github-creds',
+                    url: 'https://github.com/ashwin1707-cell/devops-monitoring-dashboard.git'
+                )
+
+                sh 'echo "Repository Cloned Successfully"'
+
+                sh 'ls -la'
             }
         }
 
@@ -31,9 +37,20 @@ pipeline {
 
             steps {
 
-                dir('terraform') {
+                dir("${TF_DIR}") {
 
-                    sh 'terraform init -upgrade'
+                    sh 'terraform init'
+                }
+            }
+        }
+
+        stage('Terraform Validate') {
+
+            steps {
+
+                dir("${TF_DIR}") {
+
+                    sh 'terraform validate'
                 }
             }
         }
@@ -42,10 +59,36 @@ pipeline {
 
             steps {
 
-                dir('terraform') {
+                dir("${TF_DIR}") {
 
                     sh 'terraform apply -auto-approve'
                 }
+            }
+        }
+
+        stage('Get EC2 Public IP') {
+
+            steps {
+
+                script {
+
+                    env.EC2_IP = sh(
+                        script: "cd terraform && terraform output -raw public_ip",
+                        returnStdout: true
+                    ).trim()
+
+                    echo "EC2 PUBLIC IP: ${env.EC2_IP}"
+                }
+            }
+        }
+
+        stage('Wait For EC2') {
+
+            steps {
+
+                echo "Waiting for EC2 instance..."
+
+                sh 'sleep 90'
             }
         }
 
@@ -53,7 +96,7 @@ pipeline {
 
             steps {
 
-                sh 'docker build -t $IMAGE_NAME python-app/'
+                sh 'docker build -t $IMAGE_NAME .'
             }
         }
 
@@ -70,8 +113,8 @@ pipeline {
                 ]) {
 
                     sh '''
-                    echo $DOCKER_PASS | docker login \
-                    -u $DOCKER_USER --password-stdin
+                    echo "$DOCKER_PASS" | docker login \
+                    -u "$DOCKER_USER" --password-stdin
                     '''
                 }
             }
@@ -85,65 +128,66 @@ pipeline {
             }
         }
 
-        stage('Test SSH Connection') {
+        stage('Install Docker + Kubernetes + Helm') {
 
             steps {
 
-                sshagent(credentials: ['ec2-user']) {
+                sshagent(credentials: ['ec2-key']) {
 
                     sh """
-                    ssh -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_IP} "
-
-                    echo 'SSH CONNECTION SUCCESS'
-
-                    hostname
-
-                    "
-                    """
-                }
-            }
-        }
-
-        stage('Install Docker + Kubernetes Tools') {
-
-            steps {
-
-                sshagent(credentials: ['ec2-user']) {
-
-                    sh """
-                    ssh -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_IP} "
+                    ssh -o StrictHostKeyChecking=no ec2-user@${EC2_IP} '
 
                     sudo yum update -y
 
-                    sudo yum install docker git conntrack -y
+                    # INSTALL DOCKER
 
-                    sudo systemctl enable docker
+                    if ! command -v docker &> /dev/null
+                    then
+                        sudo yum install docker -y
+                        sudo systemctl enable docker
+                        sudo systemctl start docker
+                        sudo usermod -aG docker ec2-user
+                    fi
 
-                    sudo systemctl restart docker
+                    # INSTALL KUBECTL
 
-                    sudo chmod 666 /var/run/docker.sock
+                    if ! command -v kubectl &> /dev/null
+                    then
+                        curl -LO "https://dl.k8s.io/release/\$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
 
-                    curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
+                        chmod +x kubectl
 
-                    sudo install minikube-linux-amd64 /usr/local/bin/minikube
+                        sudo mv kubectl /usr/local/bin/
+                    fi
 
-                    curl -LO https://dl.k8s.io/release/\\\\\$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl
+                    # INSTALL MINIKUBE
 
-                    chmod +x kubectl
+                    if ! command -v minikube &> /dev/null
+                    then
+                        curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
 
-                    sudo mv kubectl /usr/local/bin/
+                        sudo install minikube-linux-amd64 /usr/local/bin/minikube
+                    fi
 
-                    curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+                    # INSTALL HELM
+
+                    if ! command -v helm &> /dev/null
+                    then
+                        curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+                    fi
+
+                    # START MINIKUBE
 
                     minikube delete || true
 
-                    sudo minikube start --driver=docker --force
+                    minikube start \
+                    --driver=docker \
+                    --memory=4096 \
+                    --cpus=2
 
-                    sudo minikube update-context
+                    kubectl get nodes
 
-                    sudo kubectl get nodes
-
-                    "
+                    '
                     """
                 }
             }
@@ -153,95 +197,100 @@ pipeline {
 
             steps {
 
-                sshagent(credentials: ['ec2-user']) {
+                sshagent(credentials: ['ec2-key']) {
 
                     sh """
                     scp -o StrictHostKeyChecking=no \
-                    -r k8s ${EC2_USER}@${EC2_IP}:/home/ec2-user/
+                    -r k8s ec2-user@${EC2_IP}:/home/ec2-user/
                     """
                 }
             }
         }
 
-        stage('Deploy Application + Monitoring') {
+        stage('Deploy Application') {
 
             steps {
 
-                sshagent(credentials: ['ec2-user']) {
+                sshagent(credentials: ['ec2-key']) {
 
                     sh """
-                    ssh -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_IP} "
+                    ssh -o StrictHostKeyChecking=no ec2-user@${EC2_IP} '
 
-                    sudo kubectl apply -f /home/ec2-user/k8s/deployment.yaml
+                    kubectl apply -f /home/ec2-user/k8s/
 
-                    sudo kubectl apply -f /home/ec2-user/k8s/service.yaml
+                    kubectl rollout status deployment/python-app
 
-                    sudo kubectl create namespace monitoring || true
+                    kubectl get pods
 
-                    sudo helm repo add prometheus-community \
+                    kubectl get svc
+
+                    '
+                    """
+                }
+            }
+        }
+
+        stage('Install Monitoring Stack') {
+
+            steps {
+
+                sshagent(credentials: ['ec2-key']) {
+
+                    sh """
+                    ssh -o StrictHostKeyChecking=no ec2-user@${EC2_IP} '
+
+                    kubectl create namespace monitoring || true
+
+                    helm repo add prometheus-community \
                     https://prometheus-community.github.io/helm-charts
 
-                    sudo helm repo update
+                    helm repo update
 
-                    sudo helm install prometheus \
-                    prometheus-community/prometheus \
-                    -n monitoring || true
+                    helm install monitoring \
+                    prometheus-community/kube-prometheus-stack \
+                    --namespace monitoring \
+                    --set alertmanager.enabled=false || true
 
-                    sudo helm install grafana \
-                    prometheus-community/grafana \
-                    -n monitoring || true
-
-                    sudo kubectl patch svc grafana \
+                    kubectl patch svc monitoring-grafana \
                     -n monitoring \
-                    -p '{\"spec\":{\"type\":\"NodePort\"}}'
+                    -p "{\"spec\":{\"type\":\"NodePort\"}}"
 
-                    sudo kubectl patch svc prometheus-server \
+                    kubectl patch svc monitoring-kube-prometheus-prometheus \
                     -n monitoring \
-                    -p '{\"spec\":{\"type\":\"NodePort\"}}' || true
+                    -p "{\"spec\":{\"type\":\"NodePort\"}}"
 
-                    sudo kubectl apply -f \
-                    https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml || true
+                    kubectl get svc -n monitoring
 
-                    sudo kubectl get pods -A
-
-                    sudo kubectl get svc -A
-
-                    "
+                    '
                     """
                 }
             }
         }
 
-        stage('Show Monitoring URLs') {
+        stage('Show URLs') {
 
             steps {
 
-                sshagent(credentials: ['ec2-user']) {
+                sshagent(credentials: ['ec2-key']) {
 
                     sh """
-                    ssh -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_IP} "
+                    ssh -o StrictHostKeyChecking=no ec2-user@${EC2_IP} '
 
-                    echo '=============================='
+                    echo "======================================"
 
-                    echo 'APPLICATION URL'
+                    echo "APPLICATION URL"
 
-                    sudo minikube service python-app-service --url
+                    minikube service python-app-service --url
 
-                    echo '=============================='
+                    echo "======================================"
 
-                    echo 'GRAFANA NODEPORT'
+                    echo "MONITORING SERVICES"
 
-                    sudo kubectl get svc grafana -n monitoring
+                    kubectl get svc -n monitoring
 
-                    echo '=============================='
+                    echo "======================================"
 
-                    echo 'PROMETHEUS NODEPORT'
-
-                    sudo kubectl get svc prometheus-server -n monitoring
-
-                    echo '=============================='
-
-                    "
+                    '
                     """
                 }
             }
@@ -252,12 +301,14 @@ pipeline {
 
         success {
 
-            echo 'Pipeline Executed Successfully!'
+            echo 'PIPELINE EXECUTED SUCCESSFULLY'
         }
 
         failure {
 
-            echo 'Pipeline Failed!'
+            echo 'PIPELINE FAILED'
         }
     }
 }
+```
+
