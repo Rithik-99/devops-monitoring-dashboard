@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-This project demonstrates a complete DevOps CI/CD pipeline for deploying and monitoring a Java application using modern DevOps tools and AWS cloud infrastructure.
+This project demonstrates a complete DevOps CI/CD pipeline for deploying and monitoring a cloud-native application using modern DevOps tools and AWS cloud infrastructure.
 
 ---
 
@@ -52,6 +52,11 @@ devops-monitoring-dashboard/
 ├── k8s/
 ├── monitoring/
 ├── screenshots/
+│   ├── jenkins.png
+│   ├── grafana.png
+│   ├── prometheus.png
+│   └── app.png
+│
 └── README.md
 ```
 
@@ -118,25 +123,34 @@ terraform apply
 # Screenshots
 
 ## Jenkins Pipeline
-![Jenkins](screenshots/jenkins.png)
 
+![Jenkins Pipeline](screenshots/jenkins.png)
+
+---
 
 ## Grafana Dashboard
-![Grafana](screenshots/grafana.png)
+
+![Grafana Dashboard](screenshots/grafana.png)
+
+---
 
 ## Prometheus Dashboard
-![Prometheus](screenshots/prometheus.png)
+
+![Prometheus Dashboard](screenshots/prometheus.png)
+
+---
 
 ## Application Output
-![Application](screenshots/app.png)
+
+![Application Output](screenshots/app.png)
 
 ---
 
 # AWS Services Used
 
 - EC2
-- Security Groups
 - IAM
+- Security Groups
 - VPC
 
 ---
@@ -144,8 +158,8 @@ terraform apply
 # Future Improvements
 
 - Add SonarQube
-- Add ArgoCD
 - Add Helm Charts
+- Add ArgoCD
 - Multi-node Kubernetes Cluster
 
 ---
