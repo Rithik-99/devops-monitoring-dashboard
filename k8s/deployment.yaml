@@ -20,7 +20,7 @@ spec:
       containers:
       - name: python-app
 
-        image: ashwin0717/devops-monitoring-dashboard:latest
+        image: rithik9/devops-monitoring-dashboard:latest
 
         imagePullPolicy: Always
 
