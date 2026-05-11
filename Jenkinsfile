@@ -4,7 +4,7 @@ pipeline {
 
     environment {
 
-        IMAGE_NAME = "ashwin0717/devops-monitoring-dashboard:${BUILD_NUMBER}"
+        IMAGE_NAME = "rithik9/devops-monitoring-dashboard:${BUILD_NUMBER}"
 
         AWS_ACCESS_KEY_ID     = credentials('aws-access-key')
         AWS_SECRET_ACCESS_KEY = credentials('aws-secret-key')
@@ -23,7 +23,7 @@ pipeline {
                 git(
                     branch: 'main',
                     credentialsId: 'github-creds',
-                    url: 'https://github.com/ashwin1707-cell/devops-monitoring-dashboard.git'
+                    url: 'https://github.com/Rithik-99/devops-monitoring-dashboard.git'
                 )
 
                 sh 'ls -la'
